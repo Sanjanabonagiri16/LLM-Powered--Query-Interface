@@ -666,6 +666,7 @@
         if (!q) return;
         addChat("user", q);
         qEl.value = "";
+        let streamDeliveredContent = false;
         try {
           const res = await fetch(`${api}/api/chat/stream`, {
             method: "POST",
@@ -702,18 +703,27 @@
               if (!line.trim()) continue;
               const evt = JSON.parse(line);
               if (evt.type === "meta") {
+                streamDeliveredContent = true;
                 document.getElementById("sql").textContent = evt.sql || "No SQL generated.";
                 await expandAndFocusHighlights(evt.highlight_node_ids || []);
               } else if (evt.type === "token") {
+                streamDeliveredContent = true;
                 assistantLine += evt.value;
                 bubble.textContent = assistantLine.trim();
               } else if (evt.type === "rows") {
+                streamDeliveredContent = true;
                 renderTable(evt.rows || []);
+              } else if (evt.type === "done") {
+                streamDeliveredContent = true;
               }
             }
             log.scrollTop = log.scrollHeight;
           }
         } catch (_err) {
+          if (streamDeliveredContent) {
+            // Stream may close abruptly after partial payload; avoid duplicate fallback error.
+            return;
+          }
           // Fallback path: if stream fails (proxy/network/server), retry non-stream endpoint.
           try {
             const retry = await fetch(`${api}/api/chat`, {
