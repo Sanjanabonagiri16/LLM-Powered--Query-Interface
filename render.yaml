@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: dodge-ai-o2c
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./scripts/start_server.sh
+    autoDeploy: true

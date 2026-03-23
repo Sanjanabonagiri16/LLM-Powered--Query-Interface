@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dodge AI - Order to Cash</title>
+    <script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
+    <style>
+      :root {
+        --bg: #f7f8fb;
+        --panel: #ffffff;
+        --border: #e8ebf0;
+        --text: #101828;
+        --muted: #667085;
+        --primary: #0f172a;
+        --accent: #198cff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+      .page { height: 100vh; padding: 14px; }
+      .topbar {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 14px;
+        padding: 0 6px;
+      }
+      .topbar .strong { color: var(--text); font-weight: 600; }
+      .canvas {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        height: calc(100vh - 72px);
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: 1fr 320px;
+      }
+      .graph-wrap { position: relative; border-right: 1px solid var(--border); }
+      #graph { width: 100%; height: 100%; }
+      .graph-controls {
+        position: absolute;
+        left: 14px;
+        top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        z-index: 20;
+        max-width: 72%;
+      }
+      .meta-flyout {
+        position: absolute;
+        left: 20px;
+        top: 58px;
+        width: 300px;
+        max-height: 360px;
+        overflow: auto;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 10px 24px rgba(16, 24, 40, 0.08);
+        padding: 12px;
+        font-size: 12px;
+        white-space: pre-wrap;
+        display: none;
+        z-index: 20;
+      }
+      .meta-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+      .meta-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .meta-close {
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        height: 24px;
+        width: 24px;
+        font-size: 14px;
+        line-height: 1;
+        color: #344054;
+      }
+      .btn {
+        border: 1px solid var(--border);
+        background: #fff;
+        height: 32px;
+        border-radius: 8px;
+        padding: 0 12px;
+        font-size: 12px;
+        color: #344054;
+        cursor: pointer;
+      }
+      .btn.dark {
+        background: #111827;
+        color: #fff;
+        border-color: #111827;
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .search-box {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0 6px;
+        height: 32px;
+      }
+      .search-box input {
+        border: none;
+        outline: none;
+        font-size: 12px;
+        width: 170px;
+      }
+      .search-box select {
+        border: none;
+        outline: none;
+        font-size: 12px;
+        background: transparent;
+        width: 170px;
+      }
+      .trace-box input { width: 120px; }
+
+      .chat {
+        display: grid;
+        grid-template-rows: auto auto minmax(140px, 1fr) auto auto;
+        background: #fcfcfd;
+        min-height: 0;
+      }
+      .chat-head {
+        border-bottom: 1px solid var(--border);
+        padding: 12px;
+      }
+      .chat-head .title { font-size: 14px; font-weight: 600; }
+      .chat-head .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+      .agent-card {
+        margin: 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        background: #fff;
+      }
+      .agent-name { font-weight: 600; font-size: 14px; }
+      .agent-role { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+      #chatlog {
+        margin: 0 12px 8px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+        overflow-y: auto;
+        overflow-x: hidden;
+        min-height: 0;
+        padding: 10px;
+      }
+      /* Make scrollbars clearly visible in app panes */
+      #chatlog::-webkit-scrollbar,
+      #resultsTable::-webkit-scrollbar,
+      #sql::-webkit-scrollbar,
+      .meta-flyout::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      #chatlog::-webkit-scrollbar-thumb,
+      #resultsTable::-webkit-scrollbar-thumb,
+      #sql::-webkit-scrollbar-thumb,
+      .meta-flyout::-webkit-scrollbar-thumb {
+        background: #c1c9d6;
+        border-radius: 8px;
+        border: 2px solid #ffffff;
+      }
+      #chatlog::-webkit-scrollbar-track,
+      #resultsTable::-webkit-scrollbar-track,
+      #sql::-webkit-scrollbar-track,
+      .meta-flyout::-webkit-scrollbar-track {
+        background: #f3f5f9;
+      }
+      .msg {
+        margin-bottom: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .msg-label { color: var(--muted); font-size: 11px; }
+      .bubble {
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .bubble.user { background: #111827; color: #fff; align-self: flex-end; max-width: 95%; }
+      .bubble.assistant { background: #f2f4f7; color: #101828; max-width: 95%; }
+      .status {
+        margin: 0 12px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        color: #344054;
+        font-size: 12px;
+      }
+      .dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #22c55e;
+        margin-right: 8px;
+      }
+      .composer {
+        margin: 8px 12px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+        padding: 8px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 64px;
+        resize: vertical;
+        border: none;
+        outline: none;
+        font-family: inherit;
+        font-size: 13px;
+      }
+      .composer-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 6px;
+      }
+      .hint { color: var(--muted); font-size: 11px; }
+
+      .results {
+        margin: 0 12px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+        overflow: hidden;
+      }
+      .results-head {
+        padding: 8px 10px;
+        font-size: 12px;
+        color: var(--muted);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .results-actions { display: flex; gap: 6px; }
+      #sql {
+        padding: 8px 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        white-space: pre-wrap;
+        border-bottom: 1px solid var(--border);
+        max-height: 110px;
+        overflow: auto;
+      }
+      #resultsTable {
+        max-height: 160px;
+        overflow: auto;
+      }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { border-bottom: 1px solid #eff1f4; padding: 6px 8px; text-align: left; }
+      th { color: #344054; position: sticky; top: 0; background: #fff; }
+
+      @media (max-width: 1100px) {
+        .canvas { grid-template-columns: 1fr; }
+        .graph-wrap { border-right: none; border-bottom: 1px solid var(--border); min-height: 62vh; }
+        .chat { min-height: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">Mapping <span>/</span> <span class="strong">Order to Cash</span></div>
+      <div class="canvas">
+        <section class="graph-wrap">
+          <div class="graph-controls">
+            <button class="btn" id="fitBtn">Minimize</button>
+            <button class="btn dark" id="toggleEdgesBtn">Hide Granular Overlay</button>
+            <button class="btn" id="expandBtn">Expand Node</button>
+            <button class="btn" id="resetBtn">Reset</button>
+            <div class="search-box">
+              <input id="entitySearch" placeholder="Search node/entity" />
+              <button class="btn" id="searchBtn" style="height:24px;padding:0 8px;">Go</button>
+            </div>
+            <div class="search-box">
+              <select id="relationFilter">
+                <option value="__ALL__">All Relations</option>
+              </select>
+              <button class="btn" id="applyRelationBtn" style="height:24px;padding:0 8px;">Apply</button>
+            </div>
+            <div class="search-box trace-box">
+              <input id="traceBillingDoc" placeholder="Billing Doc" />
+              <button class="btn" id="traceBtn" style="height:24px;padding:0 8px;">Trace Path</button>
+              <button class="btn" id="traceSelectedBtn" style="height:24px;padding:0 8px;">Trace Selected</button>
+              <button class="btn" id="exitTraceBtn" style="height:24px;padding:0 8px;">Exit</button>
+            </div>
+          </div>
+          <div class="meta-flyout" id="metaCard">
+            <div class="meta-head">
+              <div class="meta-title">Node Details</div>
+              <button class="meta-close" id="closeMetaBtn" title="Close metadata">x</button>
+            </div>
+            <div id="meta"></div>
+          </div>
+          <div id="graph"></div>
+        </section>
+
+        <aside class="chat">
+          <div class="chat-head">
+            <div class="title">Chat with Graph</div>
+            <div class="sub">Order to Cash</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-name">Dodge AI</div>
+            <div class="agent-role">Graph Agent</div>
+            <div style="font-size:13px;">Hi! I can help you analyze the Order to Cash process.</div>
+          </div>
+          <div id="chatlog"></div>
+          <div class="status"><span class="dot"></span>Dodge AI is awaiting instructions</div>
+          <div class="composer">
+            <textarea id="question" placeholder="Analyze anything about sales orders, deliveries, billing, journals, and payments"></textarea>
+            <div class="composer-foot">
+              <span class="hint">Dataset-grounded answers only</span>
+              <button class="btn primary" id="askBtn">Send</button>
+            </div>
+          </div>
+          <div class="results">
+            <div class="results-head">
+              <span>Executed Query</span>
+              <div class="results-actions">
+                <button class="btn" id="viewStatsBtn" style="height:24px;padding:0 8px;">View Stats</button>
+                <button class="btn" id="exportStatsBtn" style="height:24px;padding:0 8px;">Export Stats</button>
+                <button class="btn" id="exportAuditBtn" style="height:24px;padding:0 8px;">Export Logs</button>
+              </div>
+            </div>
+            <div id="sql"></div>
+            <div id="resultsTable"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <script>
+      const api = "";
+      let selectedNodeId = null;
+      let showEdges = true;
+      let traceMode = false;
+      let isMinimizedView = false;
+      const sessionId = localStorage.getItem("o2c_session_id") || `s-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem("o2c_session_id", sessionId);
+
+      const cy = cytoscape({
+        container: document.getElementById("graph"),
+        elements: [],
+        minZoom: 0.2,
+        maxZoom: 2.2,
+        style: [
+          {
+            selector: "node",
+            style: {
+              "background-color": "#3b82f6",
+              "width": 10,
+              "height": 10,
+              "label": "",
+              "opacity": 0.98
+            }
+          },
+          {
+            selector: "edge",
+            style: {
+              "width": 1.2,
+              "line-color": "#9abfdf",
+              "target-arrow-color": "#9abfdf",
+              "target-arrow-shape": "triangle",
+              "curve-style": "bezier",
+              "opacity": 0.7
+            }
+          },
+          { selector: ".selected", style: { "background-color": "#0f62fe", "width": 10, "height": 10, "border-width": 2, "border-color": "#0a3fb5" } },
+          { selector: ".highlighted", style: { "background-color": "#ef4444", "width": 11, "height": 11, "border-width": 2, "border-color": "#991b1b" } },
+          { selector: ".trace-node", style: { "background-color": "#f97316", "width": 12, "height": 12, "border-width": 2, "border-color": "#9a3412" } },
+          { selector: ".trace-edge", style: { "line-color": "#f97316", "target-arrow-color": "#f97316", "width": 2.6, "opacity": 1 } },
+          { selector: ".relation-hidden", style: { "display": "none" } },
+          { selector: ".hidden-edge", style: { "display": "none" } }
+        ],
+        layout: { name: "cose", animate: false, fit: true, padding: 30 }
+      });
+
+      function addChat(role, text) {
+        const row = document.createElement("div");
+        row.className = "msg";
+        const label = document.createElement("div");
+        label.className = "msg-label";
+        label.textContent = role === "user" ? "You" : "Dodge AI";
+        const bubble = document.createElement("div");
+        bubble.className = `bubble ${role === "user" ? "user" : "assistant"}`;
+        bubble.textContent = text;
+        row.appendChild(label);
+        row.appendChild(bubble);
+        const log = document.getElementById("chatlog");
+        log.appendChild(row);
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function renderTable(rows) {
+        const container = document.getElementById("resultsTable");
+        if (!rows || rows.length === 0) {
+          container.innerHTML = "<div style='padding:10px;color:#667085;font-size:12px;'>No rows returned.</div>";
+          return;
+        }
+        const cols = Object.keys(rows[0]).slice(0, 8);
+        let html = "<table><thead><tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+        html += rows.slice(0, 30).map((r) => "<tr>" + cols.map((c) => `<td>${r[c] ?? ""}</td>`).join("") + "</tr>").join("");
+        html += "</tbody></table>";
+        container.innerHTML = html;
+      }
+
+      function renderStatsTable(payload) {
+        const rows = payload?.tables || [];
+        const container = document.getElementById("resultsTable");
+        if (!rows.length) {
+          container.innerHTML = "<div style='padding:10px;color:#667085;font-size:12px;'>No dataset stats available.</div>";
+          return;
+        }
+        const cols = ["table", "sap_o2c_data_rows", "sap_o2c_data_2_rows", "raw_sum", "integrated_table_rows"];
+        let html = "<table><thead><tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+        html += rows.map((r) => "<tr>" + cols.map((c) => `<td>${r[c] ?? ""}</td>`).join("") + "</tr>").join("");
+        html += "</tbody></table>";
+        container.innerHTML = html;
+        document.getElementById("sql").textContent = `Dataset sources: ${(payload.sources || []).join(", ")}`;
+      }
+
+      function updateMeta(node) {
+        const metaCard = document.getElementById("metaCard");
+        const meta = node && node.data("meta") ? node.data("meta") : "Click any node to inspect details.";
+        document.getElementById("meta").textContent = meta;
+        metaCard.style.display = "block";
+      }
+
+      function upsertGraph(payload) {
+        const nodeMap = new Map(cy.nodes().map((n) => [n.id(), true]));
+        const edgeMap = new Map(cy.edges().map((e) => [e.id(), true]));
+        (payload.nodes || []).forEach((n) => {
+          if (!nodeMap.has(n.node_id)) {
+            cy.add({ group: "nodes", data: { id: n.node_id, label: `${n.node_type}:${n.label}`, meta: n.metadata || "{}" } });
+          }
+        });
+        (payload.edges || []).forEach((e) => {
+          const eid = `${e.source_id}__${e.target_id}__${e.relation}`;
+          if (!edgeMap.has(eid)) {
+            cy.add({ group: "edges", data: { id: eid, source: e.source_id, target: e.target_id, relation: e.relation } });
+          }
+        });
+        cy.layout({ name: "cose", animate: false, fit: true, padding: 30 }).run();
+      }
+
+      function applyHighlights(nodeIds) {
+        cy.nodes().removeClass("highlighted trace-node");
+        cy.edges().removeClass("trace-edge");
+        (nodeIds || []).forEach((id) => {
+          const n = cy.getElementById(id);
+          if (n && n.length) n.addClass("highlighted");
+        });
+      }
+
+      function applyTraceStyles(pathNodeIds) {
+        cy.nodes().removeClass("trace-node");
+        cy.edges().removeClass("trace-edge");
+        (pathNodeIds || []).forEach((id) => {
+          const n = cy.getElementById(id);
+          if (n && n.length) n.addClass("trace-node");
+        });
+        const nodeSet = new Set(pathNodeIds || []);
+        cy.edges().forEach((e) => {
+          const src = e.data("source");
+          const tgt = e.data("target");
+          if (nodeSet.has(src) && nodeSet.has(tgt)) {
+            e.addClass("trace-edge");
+          }
+        });
+      }
+
+      async function expandAndFocusHighlights(nodeIds) {
+        const ids = (nodeIds || []).slice(0, 4);
+        for (const id of ids) {
+          const exists = cy.getElementById(id);
+          if (!exists || !exists.length) continue;
+          const res = await fetch(`${api}/api/graph/expand/${encodeURIComponent(id)}?limit=90`);
+          const data = await res.json();
+          upsertGraph(data);
+        }
+        applyHighlights(nodeIds);
+        const highlighted = cy.nodes(".highlighted");
+        if (highlighted.length) cy.fit(highlighted, 100);
+      }
+
+      async function loadSeed() {
+        traceMode = false;
+        isMinimizedView = false;
+        document.getElementById("fitBtn").textContent = "Minimize";
+        selectedNodeId = null;
+        cy.elements().remove();
+        const res = await fetch(`${api}/api/graph/seed?limit=220`);
+        const data = await res.json();
+        upsertGraph(data);
+        await loadRelationOptions();
+      }
+
+      cy.on("tap", "node", (evt) => {
+        cy.nodes().removeClass("selected");
+        const n = evt.target;
+        n.addClass("selected");
+        selectedNodeId = n.id();
+        updateMeta(n);
+      });
+
+      document.getElementById("expandBtn").onclick = async () => {
+        if (traceMode) return;
+        if (!selectedNodeId) return;
+        const res = await fetch(`${api}/api/graph/expand/${encodeURIComponent(selectedNodeId)}?limit=120`);
+        const data = await res.json();
+        upsertGraph(data);
+      };
+
+      document.getElementById("resetBtn").onclick = loadSeed;
+
+      document.getElementById("fitBtn").onclick = () => {
+        const fitBtn = document.getElementById("fitBtn");
+        if (!isMinimizedView) {
+          const all = cy.elements();
+          if (all.length) {
+            cy.fit(all, 35);
+            const minimizedZoom = Math.max(cy.minZoom(), Math.min(cy.zoom() * 0.6, 0.45));
+            cy.zoom(minimizedZoom);
+          }
+          fitBtn.textContent = "Restore";
+          isMinimizedView = true;
+        } else {
+          cy.fit(undefined, 40);
+          fitBtn.textContent = "Minimize";
+          isMinimizedView = false;
+        }
+      };
+
+      document.getElementById("toggleEdgesBtn").onclick = (e) => {
+        showEdges = !showEdges;
+        if (showEdges) {
+          cy.edges().removeClass("hidden-edge");
+          e.target.textContent = "Hide Granular Overlay";
+        } else {
+          cy.edges().addClass("hidden-edge");
+          e.target.textContent = "Show Granular Overlay";
+        }
+      };
+
+      async function runEntitySearch() {
+        if (traceMode) return;
+        const q = document.getElementById("entitySearch").value.trim();
+        if (!q) return;
+        const res = await fetch(`${api}/api/search/entities`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q, limit: 20 })
+        });
+        const data = await res.json();
+        const ids = (data.nodes || []).map((n) => n.node_id);
+        applyHighlights(ids);
+        if (ids.length) {
+          const first = cy.getElementById(ids[0]);
+          if (first && first.length) cy.animate({ center: { eles: first }, duration: 250 });
+        }
+      }
+
+      async function loadRelationOptions() {
+        try {
+          const res = await fetch(`${api}/api/graph/relations`);
+          const data = await res.json();
+          const select = document.getElementById("relationFilter");
+          const current = select.value || "__ALL__";
+          select.innerHTML = `<option value="__ALL__">All Relations</option>`;
+          (data.relations || []).forEach((r) => {
+            const opt = document.createElement("option");
+            opt.value = r.relation;
+            opt.textContent = `${r.relation} (${r.edge_count})`;
+            select.appendChild(opt);
+          });
+          select.value = current;
+        } catch (_err) {
+          // no-op: keep UI usable even if relation summary fails
+        }
+      }
+
+      function applyRelationFilter() {
+        const selected = document.getElementById("relationFilter").value;
+        cy.edges().removeClass("relation-hidden");
+        if (selected === "__ALL__") return;
+        cy.edges().forEach((e) => {
+          if (e.data("relation") !== selected) e.addClass("relation-hidden");
+        });
+      }
+
+      async function runTracePath() {
+        const billingDoc = document.getElementById("traceBillingDoc").value.trim();
+        if (!billingDoc) return;
+        const res = await fetch(`${api}/api/graph/trace/${encodeURIComponent(billingDoc)}`);
+        const data = await res.json();
+        if (!data.nodes || !data.nodes.length) {
+          addChat("assistant", data.message || "No trace path found.");
+          return;
+        }
+        traceMode = true;
+        cy.elements().remove();
+        upsertGraph({ nodes: data.nodes, edges: data.edges });
+        applyHighlights(data.highlight_node_ids || []);
+        applyTraceStyles(data.ordered_path || data.highlight_node_ids || []);
+        const traced = cy.nodes(".trace-node");
+        if (traced.length) cy.fit(traced, 90);
+        addChat("assistant", `Trace path mode enabled for billing document ${billingDoc}.`);
+      }
+
+      function getBillingDocFromNodeId(nodeId) {
+        if (!nodeId) return "";
+        if (nodeId.startsWith("B:")) return nodeId.slice(2);
+        if (nodeId.startsWith("BI:")) {
+          const parts = nodeId.split(":");
+          return parts.length > 1 ? parts[1] : "";
+        }
+        return "";
+      }
+
+      async function runTraceFromSelected() {
+        const fromSelected = getBillingDocFromNodeId(selectedNodeId);
+        if (!fromSelected) {
+          addChat("assistant", "Select a BillingDocument or BillingItem node first, then click Trace Selected.");
+          return;
+        }
+        document.getElementById("traceBillingDoc").value = fromSelected;
+        await runTracePath();
+      }
+
+      function exitTracePath() {
+        if (!traceMode) return;
+        loadSeed();
+        addChat("assistant", "Exited trace path mode and restored graph view.");
+      }
+
+      async function askQuestion() {
+        const qEl = document.getElementById("question");
+        const q = qEl.value.trim();
+        if (!q) return;
+        addChat("user", q);
+        qEl.value = "";
+        try {
+          const res = await fetch(`${api}/api/chat/stream`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: q, history: [], session_id: sessionId, stream: true })
+          });
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let assistantLine = "";
+          const msg = document.createElement("div");
+          msg.className = "msg";
+          const label = document.createElement("div");
+          label.className = "msg-label";
+          label.textContent = "Dodge AI";
+          const bubble = document.createElement("div");
+          bubble.className = "bubble assistant";
+          bubble.textContent = "";
+          msg.appendChild(label);
+          msg.appendChild(bubble);
+          const log = document.getElementById("chatlog");
+          log.appendChild(msg);
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              const evt = JSON.parse(line);
+              if (evt.type === "meta") {
+                document.getElementById("sql").textContent = evt.sql || "No SQL generated.";
+                await expandAndFocusHighlights(evt.highlight_node_ids || []);
+              } else if (evt.type === "token") {
+                assistantLine += evt.value;
+                bubble.textContent = assistantLine.trim();
+              } else if (evt.type === "rows") {
+                renderTable(evt.rows || []);
+              }
+            }
+            log.scrollTop = log.scrollHeight;
+          }
+        } catch (_err) {
+          addChat("assistant", "Unable to fetch response from server.");
+        }
+      }
+
+      async function exportAuditLogs() {
+        try {
+          const res = await fetch(`${api}/api/audit/export?limit=5000`);
+          const data = await res.json();
+          const blob = new Blob([JSON.stringify(data.logs || [], null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `o2c-audit-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (_err) {
+          addChat("assistant", "Unable to export audit logs right now.");
+        }
+      }
+
+      async function viewDatasetStats() {
+        try {
+          const res = await fetch(`${api}/api/dataset/stats`);
+          const data = await res.json();
+          renderStatsTable(data);
+          addChat("assistant", "Displayed dataset per-table stats.");
+        } catch (_err) {
+          addChat("assistant", "Unable to load dataset stats.");
+        }
+      }
+
+      async function exportDatasetStats() {
+        try {
+          const res = await fetch(`${api}/api/dataset/stats`);
+          const data = await res.json();
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `o2c-dataset-stats-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (_err) {
+          addChat("assistant", "Unable to export dataset stats right now.");
+        }
+      }
+
+      document.getElementById("askBtn").onclick = askQuestion;
+      document.getElementById("searchBtn").onclick = runEntitySearch;
+      document.getElementById("traceBtn").onclick = runTracePath;
+      document.getElementById("traceSelectedBtn").onclick = runTraceFromSelected;
+      document.getElementById("exitTraceBtn").onclick = exitTracePath;
+      document.getElementById("closeMetaBtn").onclick = () => {
+        document.getElementById("metaCard").style.display = "none";
+      };
+      document.getElementById("applyRelationBtn").onclick = applyRelationFilter;
+      document.getElementById("viewStatsBtn").onclick = viewDatasetStats;
+      document.getElementById("exportStatsBtn").onclick = exportDatasetStats;
+      document.getElementById("exportAuditBtn").onclick = exportAuditLogs;
+      document.getElementById("entitySearch").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") runEntitySearch();
+      });
+      document.getElementById("traceBillingDoc").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") runTracePath();
+      });
+      document.getElementById("relationFilter").addEventListener("change", applyRelationFilter);
+      document.getElementById("question").addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") askQuestion();
+      });
+
+      addChat("assistant", "Ask me questions on the Order to Cash flow and I will answer using your dataset.");
+      loadSeed();
+    </script>
+  </body>
+</html>
