@@ -666,83 +666,24 @@
         if (!q) return;
         addChat("user", q);
         qEl.value = "";
-        let streamDeliveredContent = false;
         try {
-          const res = await fetch(`${api}/api/chat/stream`, {
+          // Deployment-safe default: use non-stream endpoint to avoid proxy chunking issues.
+          const retry = await fetch(`${api}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question: q, history: [], session_id: sessionId, stream: true })
+            body: JSON.stringify({ question: q, history: [], session_id: sessionId, stream: false })
           });
-          if (!res.ok || !res.body) {
-            throw new Error(`stream_failed_${res.status}`);
-          }
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          let assistantLine = "";
-          const msg = document.createElement("div");
-          msg.className = "msg";
-          const label = document.createElement("div");
-          label.className = "msg-label";
-          label.textContent = "Dodge AI";
-          const bubble = document.createElement("div");
-          bubble.className = "bubble assistant";
-          bubble.textContent = "";
-          msg.appendChild(label);
-          msg.appendChild(bubble);
-          const log = document.getElementById("chatlog");
-          log.appendChild(msg);
-
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              const evt = JSON.parse(line);
-              if (evt.type === "meta") {
-                streamDeliveredContent = true;
-                document.getElementById("sql").textContent = evt.sql || "No SQL generated.";
-                await expandAndFocusHighlights(evt.highlight_node_ids || []);
-              } else if (evt.type === "token") {
-                streamDeliveredContent = true;
-                assistantLine += evt.value;
-                bubble.textContent = assistantLine.trim();
-              } else if (evt.type === "rows") {
-                streamDeliveredContent = true;
-                renderTable(evt.rows || []);
-              } else if (evt.type === "done") {
-                streamDeliveredContent = true;
-              }
-            }
-            log.scrollTop = log.scrollHeight;
-          }
-        } catch (_err) {
-          if (streamDeliveredContent) {
-            // Stream may close abruptly after partial payload; avoid duplicate fallback error.
+          const data = await retry.json();
+          if (!retry.ok) {
+            addChat("assistant", data.detail || "Unable to fetch response from server.");
             return;
           }
-          // Fallback path: if stream fails (proxy/network/server), retry non-stream endpoint.
-          try {
-            const retry = await fetch(`${api}/api/chat`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ question: q, history: [], session_id: sessionId, stream: false })
-            });
-            const data = await retry.json();
-            if (!retry.ok) {
-              addChat("assistant", data.detail || "Unable to fetch response from server.");
-              return;
-            }
-            addChat("assistant", data.answer || "No answer.");
-            document.getElementById("sql").textContent = data.sql || "No SQL generated.";
-            renderTable(data.rows || []);
-            await expandAndFocusHighlights(data.highlight_node_ids || []);
-          } catch (__err) {
-            addChat("assistant", "Unable to fetch response from server.");
-          }
+          addChat("assistant", data.answer || "No answer.");
+          document.getElementById("sql").textContent = data.sql || "No SQL generated.";
+          renderTable(data.rows || []);
+          await expandAndFocusHighlights(data.highlight_node_ids || []);
+        } catch (_err) {
+          addChat("assistant", "Unable to fetch response from server.");
         }
       }
 
