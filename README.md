@@ -164,3 +164,34 @@ Edge types:
 - Trace the full flow of billing document `9000001234`.
 - Identify sales orders delivered but not billed.
 
+## Interface Test Questions
+
+Use these prompts directly in the chat panel to validate interface behavior and data-grounded responses.
+
+### Required core prompts
+
+- `Which products are associated with the highest number of billing documents?`
+- `Trace the full flow for billing document 91150187`
+- `Identify sales orders that have broken or incomplete flows`
+
+### Additional business prompts
+
+- `Show me top 10 sales orders by total net amount`
+- `Show outbound deliveries`
+- `Show journal entries linked to billing document 91150187`
+- `Show payments linked to billing document 91150187`
+
+### Guardrail prompts (should be rejected)
+
+- `Write a poem about space`
+- `Tell me a joke`
+- `Who won the cricket world cup?`
+
+### UI interaction checks
+
+- Use `Billing Doc` + `Trace Path` with `91150187`
+- Select a billing node and click `Trace Selected`
+- Click `Exit` to restore full graph
+- Click `View Stats` and verify per-table/source counts
+- Click `Export Stats` and `Export Logs` to verify downloads
+
